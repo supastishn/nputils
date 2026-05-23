@@ -41,22 +41,21 @@ struct FixedPointBlock {
     }
     ~FixedPointBlock() {
         delete[] mantissa;
-    }
     void fit_exponent(const float* values, int count) {
-        int min_exp = std::numeric_limits<int>::max();
-        int max_exp = std::numeric_limits<int>::min();
+        float max_abs = 0.0f;
         for (int i = 0; i < count; ++i) {
-            float val = values[i];
-            if (val == 0.0f) continue;
-            float abs_val = std::abs(val);
-            int exp = (int)std::floor(std::log2(abs_val));
-            if (exp < min_exp) min_exp = exp;
-            if (exp > max_exp) max_exp = exp;
+            float abs_val = std::abs(values[i]);
+            if (abs_val > max_abs) max_abs = abs_val;
         }
-        if (min_exp == std::numeric_limits<int>::max()) {
+        if (max_abs == 0.0f) {
             exponent = 0;
-        } else {
-            exponent = (max_exp + min_exp) / 2;
+            return;
+        }
+        int mantissa_bits = sizeof(T) * 8 - 1;
+        int max_mantissa = (1 << mantissa_bits) - 1;
+        float scaled_max = max_abs / (float)max_mantissa;
+        exponent = (int)std::ceil(std::log2(scaled_max));
+    }
         }
     }
     void floats_to_mantissa(const float* floats, int count) {
