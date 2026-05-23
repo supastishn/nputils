@@ -1,0 +1,9 @@
+include cpu.min
+BUILD_DLLS += libnputils
+libnputils_QAICIDLS += nputils
+libnputils_EXTRA_INCS += .
+BUILD_EXES += nputils_test
+nputils_test_QAICIDLS += nputils
+nputils_test_C_SRCS += src/nputils_test
+nputils_test_DLLS += libnputils $(LIB_DSPRPC)
+nputils_test_LD_FLAGS += -llog -ldl

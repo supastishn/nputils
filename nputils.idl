@@ -1,0 +1,6 @@
+#include "AEEStdDef.idl"
+#include "remote.idl"
+interface nputils : remote_handle64{
+    AEEResult matmul_8bit(inrpc sequence<float> input, inrpc sequence<float> weights, rout sequence<float> output, inrpc long m, inrpc long k, inrpc long n);
+    AEEResult matmul_16bit(inrpc sequence<float> input, inrpc sequence<float> weights, rout sequence<float> output, inrpc long m, inrpc long k, inrpc long n);
+};

@@ -1,0 +1,16 @@
+BUILD_DLLS += libnputils_skel
+libnputils_skel_QAICIDLS += nputils
+libnputils_skel_C_SRCS += $(OBJ_DIR)/nputils_skel \
+                          src/nputils_imp
+libnputils_skel_EXTRA_INCS += .
+ifneq (v67,$(DSP_ARCH))
+   BUILD_QEXES += nputils_q
+endif
+nputils_q_C_SRCS += src/nputils_test
+nputils_q_DLLS += libnputils_skel
+nputils_q_EXTRA_INCS += .
+QEXE_SIM_OPTIONS += --dsp_clock 1000 --ahb:lowaddr 0xc0000000 --ahb:highaddr 0xc0ffffff
+BUILD_COPIES += \
+   $(QEXES) \
+   $(DLLS) \
+   $(SHIP_DIR)/ ;
