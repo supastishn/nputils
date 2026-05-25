@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <algorithm>
 #include <limits>
+#include <cstring>
+#include <cstdlib>
 namespace nputils {
 
 namespace memory {
@@ -119,7 +121,7 @@ struct FixedPointBlock {
 	namespace preprocess {
 	// format: 64 cols placed next to each other, 4 byted at a time
 	// each row is of size 64*4*colz
-	void chunkCrouton(int8_t* matrix, int8_t* output, int rows, int cols,) {
+	void chunkCrouton(int8_t* matrix, int8_t* output, int rows, int cols) {
 	memory::prefetch_l2(matrix, rows * cols, 64 * 1024);
 	int oldCols = cols;
 	cols += (64 - (cols % 64)) % 64; 
@@ -132,11 +134,13 @@ struct FixedPointBlock {
 
         memcpy(&padded_matrix[j * cols], &matrix[j * oldCols], oldCols);
         
-        memset(&padded_matrix[j * cols + oldCols], 0, diff);
+        memset(&padded_matrix[j * cols + oldCols], 0, cols - oldCols);
     }
 
     free(matrix);
     matrix = padded_matrix;
+
+	}
 }
 
 	}
