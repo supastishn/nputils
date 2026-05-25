@@ -6,50 +6,33 @@
 #include <vector>
 #include <cmath>
 #include <type_traits>
+#include <cstdint>
+#include <algorithm>
+#include "utils.h"
 namespace nputils {
-namespace memory {
-inline int prefetch_l2(const void* ptr, int bytes) {
-    const int LINE = 128;
-    const int MAX_HEIGHT = 255;
-    const int MAX_FETCH = 256 * 1024;
-    const uint8_t* addr = (const uint8_t*)ptr;
-    int total_fetched = 0;
-    if (bytes > MAX_FETCH) bytes = MAX_FETCH;
-    while (bytes > 0) {
-        int blocks = (bytes + LINE - 1) / LINE;
-        if (blocks > MAX_HEIGHT) blocks = MAX_HEIGHT;
-        uint32_t ctrl = blocks | (LINE << 8) | (LINE << 16);
-        Q6_l2fetch_AR((void*)addr, ctrl);
-        int fetched = blocks * LINE;
-        addr += fetched;
-        bytes -= fetched;
-        total_fetched += fetched;
-    }
-    return total_fetched;
-}
-}
 namespace detail {
+//TODO: Mkae this use the normal gemm
 template<typename T>
 int matmul_general(const float* input, const float* weights, float* output,
                    int m, int k, int n,
-                   bool prefetch_start = false, bool prefetch_next = true) {
+                   bool prefetch_start = true, bool prefetch_next = true) {
     static_assert(sizeof(T) <= 2, "Only int8 and int16 mantissas supported");
-    int weight_bytes = m * k * sizeof(float);
-    int input_bytes = k * n * sizeof(float);
+    int input_bytes = m * k * sizeof(float);
+    int weight_bytes = k * n * sizeof(float);
     if (prefetch_start) {
         memory::prefetch_l2(weights, weight_bytes);
     }
-    FixedPointBlock<T> weight_block(m * k);
-    FixedPointBlock<T> input_block(k * n);
+    FixedPointBlock<T> input_block(m * k);
+    FixedPointBlock<T> weight_block(k * n);
     FixedPointBlock<T> output_block(1);
-    weight_block.fit_exponent(weights, m * k);
-    input_block.fit_exponent(input, k * n);
-    weight_block.floats_to_mantissa(weights, m * k);
-    input_block.floats_to_mantissa(input, k * n);
+    input_block.fit_exponent(weights, m * k);
+    weight_block.fit_exponent(input, k * n);
+    input_block.floats_to_mantissa(weights, m * k);
+    weight_block.floats_to_mantissa(input, k * n);
     output_block.exponent = input_block.exponent + weight_block.exponent;
     using Wide = wider_t<T>;
-    std::vector<Wide> input_wide(k * n);
-    std::vector<Wide> weight_wide(m * k);
+    std::vector<Wide> weight_wide(k * n);
+    std::vector<Wide> input_wide(m * k);
     for (int i = 0; i < k * n; ++i) input_wide[i] = static_cast<Wide>(input_block.mantissa[i]);
     for (int i = 0; i < m * k; ++i) weight_wide[i] = static_cast<Wide>(weight_block.mantissa[i]);
     std::vector<Wide> output_wide(m * n, 0);

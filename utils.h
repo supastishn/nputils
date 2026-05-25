@@ -5,6 +5,31 @@
 #include <algorithm>
 #include <limits>
 namespace nputils {
+
+namespace memory {
+	//todo: 8kb blocks insyead of current blocks of 
+
+inline int prefetch_l2(const void* ptr, int bytes, int MAX_FETCH = 256 * 1024) {
+    const int LINE = 128;
+    const int MAX_HEIGHT = 64;
+
+    const uint8_t* addr = (const uint8_t*)ptr;
+    int total_fetched = 0;
+    if (bytes > MAX_FETCH) bytes = MAX_FETCH;
+    while (bytes > 0) {
+	int blocks = (bytes + LINE - 1) / LINE;
+	if (blocks > MAX_HEIGHT) blocks = MAX_HEIGHT;
+	uint32_t ctrl = blocks | (LINE << 8) | (LINE << 16);
+	Q6_l2fetch_AR((void*)addr, ctrl);
+	int fetched = blocks * LINE;
+	addr += fetched;
+	bytes -= fetched;
+	total_fetched += fetched;
+    }
+    return total_fetched;
+}
+}
+
 template <typename T>
 struct wider;
 template <> struct wider<int8_t>  { using type = int16_t; };
@@ -35,12 +60,13 @@ struct FixedPointBlock {
     bool use_stochastic;
     FixedPointBlock(int sz, bool stochastic = true) {
         size = sz;
-        mantissa = new T[size];
+	mantissa = new (std::align_val_t{128}) T[size];
         exponent = 0;
         use_stochastic = stochastic;
     }
     ~FixedPointBlock() {
-        delete[] mantissa;
+	::operator delete[](mantissa, std::align_val_t{128});
+}
     void fit_exponent(const float* values, int count) {
         float max_abs = 0.0f;
         for (int i = 0; i < count; ++i) {
@@ -89,6 +115,10 @@ struct FixedPointBlock {
             exponent += (max_exp - mantissa_bits);
         }
     }
+
+	namespace preprocess {
+	void chunkCrouton()
+	}
 };
 }
 #endif

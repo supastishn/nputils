@@ -1,0 +1,52 @@
+name: Build nputils DSP and Stub
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      QPM_DEB_URL: ${{ secrets.QPM_DEB_URL }}
+      SDK_VERSION: "5.7.0"   # Adjust to desired version string for qpm-cli
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install QPM from local deb
+        run: |
+          if [ ! -f "QualcommPackageManager3.3.0.131.7.Linux-x86.deb" ]; then
+            echo "ERROR: QPM deb file not found in repository root"
+            exit 1
+          fi
+          sudo dpkg -i QualcommPackageManager3.3.0.131.7.Linux-x86.deb
+      - name: Login to QPM
+        env:
+          QPM_USER: ${{ secrets.QPM_USERNAME }}
+          QPM_PASS: ${{ secrets.QPM_PASSWORD }}
+        run: |
+          if [ -z "$QPM_USER" ] || [ -z "$QPM_PASS" ]; then
+            echo "ERROR: QPM credentials missing"
+            exit 1
+          fi
+          qpm-cli login --username "$QPM_USER" --password "$QPM_PASS"
+      - name: Install Hexagon SDK
+        run: |
+          qpm-cli install hexagon-sdk --version "$SDK_VERSION" --prefix "$HOME/qualcomm"
+          echo "HEXAGON_SDK_ROOT=$HOME/qualcomm/Hexagon_SDK/$SDK_VERSION" >> $GITHUB_ENV
+      - name: Build nputils (hexagon and android)
+        run: |
+          export HEXAGON_SDK_ROOT="$HOME/qualcomm/Hexagon_SDK/$SDK_VERSION"
+          # Optional: specify architecture (e.g., v66) via variable
+          make android VERBOSE=1
+          make hexagon DSP_ARCH=v66 VERBOSE=1
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp android_ReleaseG_aarch64/ship/libnputils.so artifacts/ 2>/dev/null || true
+          cp hexagon_ReleaseG_MKDOCS_HEX_TOOLS_VARIANT_v66/ship/libnputils_skel.so artifacts/ 2>/dev/null || true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nputils-libs
+          path: artifacts/
