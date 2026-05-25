@@ -15,12 +15,14 @@ namespace detail {
 template<typename T>
 int matmul_general(const float* input, const float* weights, float* output,
                    int m, int k, int n,
-                   bool prefetch_start = true, bool prefetch_next = true) {
+                   bool prefetch = true, int layers_prefetch = 1;) {
     static_assert(sizeof(T) <= 2, "Only int8 and int16 mantissas supported");
     int input_bytes = m * k * sizeof(float);
     int weight_bytes = k * n * sizeof(float);
-    if (prefetch_start) {
-        memory::prefetch_l2(weights, weight_bytes);
+    memory::prefetch_l2(input, input_bytes);
+    if (prefetch) {
+        memory::prefetch_l2(weights, weight_bytes * (1 + layers_prefetch));
+
     }
     FixedPointBlock<T> input_block(m * k);
     FixedPointBlock<T> weight_block(k * n);
@@ -37,26 +39,12 @@ int matmul_general(const float* input, const float* weights, float* output,
     for (int i = 0; i < m * k; ++i) weight_wide[i] = static_cast<Wide>(weight_block.mantissa[i]);
     std::vector<Wide> output_wide(m * n, 0);
     int err = -1;
-    if constexpr (sizeof(Wide) == 2) {
-        err = qhblas_hvx_matrix_matrix_mpy_ah(
-            (const int16_t*)input_wide.data(),
-            (const int16_t*)weight_wide.data(),
-            (int16_t*)output_wide.data(),
-            m, k, n);
-    } else if constexpr (sizeof(Wide) == 4) {
-        err = qhblas_hvx_matrix_matrix_mpy_aw(
-            (const int32_t*)input_wide.data(),
-            (const int32_t*)weight_wide.data(),
-            (int32_t*)output_wide.data(),
-            m, k, n);
-    }
+
+	// TODO: USE GEMM INTRINSIC
     output_block.update_exponent_from_mantissas(output_wide.data(), m * n);
     float scale = std::ldexp(1.0f, output_block.exponent);
     for (int i = 0; i < m * n; ++i) {
         output[i] = static_cast<float>(output_wide[i]) * scale;
-    }
-    if (prefetch_next) {
-        memory::prefetch_l2(weights + m * k, weight_bytes);
     }
     return err;
 }

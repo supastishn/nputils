@@ -111,13 +111,52 @@ struct FixedPointBlock {
             if (exp > max_exp) max_exp = exp;
         }
         if (max_exp != std::numeric_limits<int>::min()) {
-            int mantissa_bits = sizeof(T) * 8 - 1;
-            exponent += (max_exp - mantissa_bits);
+		// dont subtraxt by mantissa bits to avpid douvle subtraction
+            exponent += max_exp;
         }
     }
 
 	namespace preprocess {
-	void chunkCrouton()
+	// format: 64 cols placed next to each other, 4 byted at a time
+	// each row is of size 64*4*colz
+	void chunkCrouton(int8_t* matrix, int8_t* output, int rows, int cols,) {
+	memory::prefetch_l2(matrix, rows * cols, 64 * 1024);
+	int oldCols = cols;
+	cols += (64 - (cols % 64)) % 64; 
+
+	if (cols - oldCols > 0) {
+        int8_t *padded_matrix = (int8_t *)malloc(rows * cols); 
+
+
+      for (int j = 0; j < rows; ++j) {
+
+        memcpy(&padded_matrix[j * cols], &matrix[j * oldCols], oldCols);
+        
+        memset(&padded_matrix[j * cols + oldCols], 0, diff);
+    }
+
+    free(matrix);
+    matrix = padded_matrix;
+}
+
+	}
+	// 64 cols at a timr
+	for (int i = 0; i < cols; i += 64) {
+
+	
+	// 4 rows (4 bytes) t a time
+	for (int j = 0; j < rows; j += 4) {
+		// loop over 64 cols' 4 bytes
+		for (int z = 0; z < 4; ++z) {
+
+		for (int k = 0; k < 64; ++k) {
+			output[i * rows + j * 64 + k * 4 + z] = matrix[j * cols + z * cols + i + k];
+		}
+		}
+
+	}
+	}
+
 	}
 };
 }
