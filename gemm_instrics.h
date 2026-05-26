@@ -4,11 +4,14 @@
 #include <hexagon_types.h>
 #include "utils.h"
 #include <cstring>
-HVX_Vector register_1 = Q6_V_vsplat_R(0);
-HVX_Vector register_2 = Q6_V_vsplat_R(0);
 namespace nputils {
 namespace blas_ll {
-int gemm_int8_int32(const int8_t* A, const int8_t* B, int32_t* C, int m1rows, int m1colsm2rows, int m2cols) {
+inline int gemm_int8_int32(const int8_t* A, const int8_t* B, int32_t* C, int m1rows, int m1colsm2rows, int m2cols) {
+    if (reinterpret_cast<uintptr_t>(A) % 128 != 0 || reinterpret_cast<uintptr_t>(B) % 128 != 0 || reinterpret_cast<uintptr_t>(C) % 128 != 0) {
+        return -1;
+    }
+    HVX_Vector register_1 = Q6_V_vsplat_R(0);
+    HVX_Vector register_2 = Q6_V_vsplat_R(0);
     if (reinterpret_cast<uintptr_t>(A) % 128 != 0 || reinterpret_cast<uintptr_t>(B) % 128 != 0 || reinterpret_cast<uintptr_t>(C) % 128 != 0) {
         return -1;
     }

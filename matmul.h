@@ -26,21 +26,18 @@ int matmul_general(const float* input, const float* weights, float* output,
     }
     FixedPointBlock<T> input_block(m * k);
     FixedPointBlock<T> weight_block(k * n);
-    input_block.fit_exponent(weights, m * k);
-    weight_block.fit_exponent(input, k * n);
-    input_block.floats_to_mantissa(weights, m * k);
-    weight_block.floats_to_mantissa(input, k * n);
+    input_block.fit_exponent(input, m * k);
+    weight_block.fit_exponent(weights, k * n);
+    input_block.floats_to_mantissa(input, m * k);
+    weight_block.floats_to_mantissa(weights, k * n);
     int padded_n = (n + 63) & ~63;
-    int8_t* weight_copy = (int8_t*)malloc(k * n);
-    memcpy(weight_copy, weight_block.mantissa, k * n);
-    int8_t* packed_weights = new (std::align_val_t{128}) int8_t[k * padded_n];
-    preprocess::chunkCrouton(weight_copy, packed_weights, k, n);
-    weight_copy = nullptr;
-    int32_t* output_mantissa = new (std::align_val_t{128}) int32_t[m * padded_n];
+    int8_t* packed_weights = (int8_t*)Scratchpad::alloc(k * padded_n * sizeof(int8_t));
+    preprocess::chunkCrouton(weight_block.mantissa, packed_weights, k, n);
+    int32_t* output_mantissa = (int32_t*)Scratchpad::alloc(m * padded_n * sizeof(int32_t));
     int err = blas_ll::gemm_int8_int32(input_block.mantissa, packed_weights, output_mantissa, m, k, padded_n);
     if (err != 0) {
-        ::operator delete[](packed_weights, std::align_val_t{128});
-        ::operator delete[](output_mantissa, std::align_val_t{128});
+        Scratchpad::free(packed_weights);
+        Scratchpad::free(output_mantissa);
         return err;
     }
     float scale = std::ldexp(1.0f, input_block.exponent + weight_block.exponent);
@@ -49,8 +46,8 @@ int matmul_general(const float* input, const float* weights, float* output,
             output[i * n + j] = static_cast<float>(output_mantissa[i * padded_n + j]) * scale;
         }
     }
-    ::operator delete[](packed_weights, std::align_val_t{128});
-    ::operator delete[](output_mantissa, std::align_val_t{128});
+    Scratchpad::free(packed_weights);
+    Scratchpad::free(output_mantissa);
     return 0;
 }
 } // namespace detail
