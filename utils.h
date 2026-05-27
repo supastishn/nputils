@@ -42,16 +42,62 @@ template <> struct wider<uint32_t> { using type = uint64_t; };
 template <typename T>
 using wider_t = typename wider<T>::type;
 inline uint32_t xor_shift_state = 0x400B4E00;
-inline float xorshift_float() {
+inline uint32_t xorshift_32bits() {
     xor_shift_state ^= xor_shift_state << 13;
     xor_shift_state ^= xor_shift_state >> 17;
     xor_shift_state ^= xor_shift_state << 5;
-    return (float)(xor_shift_state) / (float)(0xFFFFFFFF);
+    return xor_shift_state;
 }
-inline int stochastic_round(float value) {
-    float random = xorshift_float();
-    float shifted = value - (random - 0.5f);
-    return (int)std::round(shifted);
+inline int bitsLeft = 0;
+inline uint32_t curr = 0;
+inline int stochastic_round(float value, int precision = 4) {
+    /*
+     * to get a integer significant V we do:
+     * 2^23 + M. 2^23 is due to the implicit leading one.
+     * to get floating point val from bits it is
+     * V * 2^-23 * 2^E-127 = V * 2^(E-150)
+     * to scale X to precision bits we do X * 2^precision = V * 2^(E-150+precision) = V * 2^-(150-precision-E))
+     * which is a right shift of (150-precision-E) 
+     */
+    curr = xorshift_32bits();
+    precision = 4; //overrixe
+    
+    uint32_t u = std::bit_cast<uint32_t>(value < 0.0f ? -value : value);
+    uint32_t exponent = (u >> 23) & 0xFF;
+    if (exponent == 0) {
+        return 0;
+    }
+    uint32_t mantissa = u & 0x7FFFFF;
+    uint32_t val = (1U << 23) | mantissa;
+    int shift = 150 - precision - exponent;
+    uint32_t scaled_fixed = 0;
+    if (shift >= 0) {
+        if (shift < 32) {
+            scaled_fixed = val >> shift;
+        }
+    } else {
+        scaled_fixed = val << (-shift);
+    }
+    uint32_t mask = (1U << precision) - 1;
+    uint32_t last_n_sigfigs = scaled_fixed & mask;
+    uint32_t integer_part = scaled_fixed >> precision;
+    if (bitsLeft < precision) {
+        curr = xorshift_32bits();
+        bitsLeft = 32;
+    }
+    uint32_t random_bits = curr & mask;
+    curr >>= precision;
+    bitsLeft -= precision;
+    int rounded_magnitude = integer_part;
+
+        rounded_magnitude += ((last_n_sigfigs + random_bits) >> (1U << precision)); 
+    int32_t mask = (reinterpret_cast<int32_t&>(value) >> 31);
+
+    return (rounded_magnitude + mask) ^ mask; 
+}
+
+inline void stochastic_round_hvx(float* input, float* output, int size) {
+	
 }
 
 struct BlockHeader {
@@ -149,49 +195,39 @@ struct FixedPointBlock {
     T* mantissa;
     int32_t exponent;
     int size;
-    bool use_stochastic;
-    FixedPointBlock(int sz, bool stochastic = true) {
+
+    FixedPointBlock(int sz) {
         size = sz;
         mantissa = (T*)Scratchpad::alloc(size * sizeof(T));
         exponent = 0;
-        use_stochastic = stochastic;
     }
     ~FixedPointBlock() {
         Scratchpad::free(mantissa);
     }
     void fit_exponent(const float* values, int count) {
         memory::prefetch_l2(values, count * sizeof(float));
-        float max_abs = 0.0f;
+        uint32_t max_biased = 0;
         for (int i = 0; i < count; ++i) {
-            float abs_val = std::abs(values[i]);
-            if (abs_val > max_abs) max_abs = abs_val;
+            uint32_t abs_val = std::bit_cast<uint32_t>(values[i]);
+            abs_val &= 0x7FFFFFFF;
+            uint32_t biased = (abs_val >> 23) & 0xFF;
+            if (biased > max_biased) {
+                max_biased = biased;
+            }
         }
-        if (max_abs == 0.0f) {
-            exponent = 0;
-            return;
-        }
-        int mantissa_bits = sizeof(T) * 8 - 1;
-        int max_mantissa = (1 << mantissa_bits) - 1;
-        float scaled_max = max_abs / (float)max_mantissa;
-        exponent = (int)std::ceil(std::log2(scaled_max));
+        exponent = (int32_t)max_biased - 127;
     }
     void floats_to_mantissa(const float* floats, int count) {
         memory::prefetch_l2(floats, count * sizeof(float));
         memory::prefetch_l2(mantissa, count * sizeof(T));
-        float scale = std::ldexp(1.0f, -exponent);
         for (int i = 0; i < count; ++i) {
-            float scaled = floats[i] * scale;
-            if (use_stochastic) {
-                mantissa[i] = (T)stochastic_round(scaled);
-            } else {
-                mantissa[i] = (T)std::round(scaled);
-            }
+            mantissa[i] = (T)stochastic_round(floats[i] * std::ldexp(1.0f, -exponent), 4);
         }
     }
     void mantissa_to_floats(float* output, int count) {
         memory::prefetch_l2(mantissa, count * sizeof(T));
         memory::prefetch_l2(output, count * sizeof(float));
-        float scale = std::ldexp(1.0f, exponent);
+        float scale = std::ldexp(1.0f, exponent - 4);
         for (int i = 0; i < count; ++i) {
             output[i] = (float)mantissa[i] * scale;
         }
